@@ -222,7 +222,7 @@ ORDER BY u.nume;
 -- 17) Optimizarea unei cereri, aplicând regulile de optimizare ce deriva din proprietatile operatorilor algebrei relationale. Cererea va fi exprimata prin expresie algebrica, arbore algebric si limbaj (SQL), atât anterior cat si ulterior optimizarii.
 
 -- sa se afiseze codul si numele utilizatorilor care s-au nascut intre anii 1990 si 1999 si au ascultat un 
--- cantec cu codul intre 10 si 30 si codul si numele utilizatorilor care au creat un playlist
+-- cantec cu codul intre 10 si 30 si ale utilizatorilor care au creat macar un playlist
 
 -- varianta neoptimizata
 SELECT id, nume
