@@ -1,0 +1,252 @@
+-- 11)Formulati în limbaj natural si implementati 5 cereri SQL complexe ce vor utiliza, în ansamblul lor, urmatoarele elemente:
+
+--cerinta 1: 
+-- Sa se afiseze codul, numele, prenumele si numarul de cantece ascultate de utilizatori care au ascultat cel putin 3 cantece diferite 
+-- si al caror prenume incepe cu litera 'L'. Rezultatul va fi ordonat descrecator dupa numarul de cantece ascultate si va avea forma 
+-- "<nume> <prenume> are codul <id> si a ascultat <nr> cantece"
+
+SELECT u.nume || ' ' || u.prenume || ' are codul ' || u.id || ' si a ascultat ' || COUNT(*) || ' cantece'
+FROM utilizator u 
+INNER JOIN utilizator_cantec uc
+ON u.id = uc.id_utilizator
+INNER JOIN cantec c
+ON c.id = uc.id_cantec
+WHERE SUBSTR(u.prenume, 1, 1) = 'L'
+GROUP BY u.id, u.nume, u.prenume
+HAVING COUNT(*) >= 3
+ORDER BY COUNT(*) DESC;
+
+-- cerinta 2: 
+-- Sa se afiseze codul playlist-ului, numele utilizatorului care a creat-o (daca nu exista, se afiseaza "Creata automat") ,coloana etichetata "Creator",
+-- si numarul de cantece din playlist, pentru toate playlist-urile care contin cel putin 3 cantece si care contin macar un cantec care incepe cu litera 'S'
+
+WITH cantec_litera_S AS(
+    SELECT id
+    FROM cantec
+    WHERE denumire LIKE 'S%'
+)
+SELECT p.id, NVL(u.nume, 'Creata automat') "Creator", p.nr_cantece
+FROM playlist p
+LEFT JOIN utilizator u
+ON u.id = p.id_utilizator
+WHERE (NVL(u.id, -1) ,p.id) IN (
+    SELECT NVL(u2.id, -1), p2.id
+    FROM utilizator u2
+    RIGHT JOIN playlist p2 ON p2.id_utilizator = u2.id
+    WHERE NVL(u2.id, -1) = NVL(u.id, -1) AND p2.nr_cantece >= 3
+) AND EXISTS(
+    SELECT 1
+    FROM playlist_cantec
+    WHERE id_cantec IN (SELECT id FROM cantec_litera_S)
+        AND id_playlist = p.id
+);
+ 
+-- cerinta 3:
+-- Sa se afiseze codul, numele, si numarul de luni dintre data nasteri si data in care au apreciat prima data un cantec,
+-- ale utilizatorilor al caror nume incepe cu o consoana si care au apreciat pozitiv cele mai multe cantece create de artistul 'Kings of Leon'
+
+WITH util_prima_apreciere AS(
+    SELECT u.id, MIN(uc.data) "data_ap"
+    FROM utilizator u
+    INNER JOIN utilizator_cantec uc ON uc.id_utilizator = u.id
+    WHERE uc.apreciere = 1
+    GROUP BY u.id
+), cantece_KoL AS(
+    SELECT c.id
+    FROM cantec c
+    INNER JOIN artist a ON a.id = c.id_artist
+    WHERE a.nume = 'Kings of Leon'
+)
+SELECT u.id, u.nume, 
+    FLOOR(MONTHS_BETWEEN((SELECT "data_ap" FROM util_prima_apreciere WHERE id = u.id), u.data_nastere)) "Luni"
+FROM utilizator u
+WHERE u.id IN (SELECT id FROM util_prima_apreciere) AND 
+      u.id IN (
+            SELECT id_utilizator 
+            FROM utilizator_cantec
+            WHERE id_cantec IN (SELECT id FROM cantece_KoL)
+            GROUP BY id_utilizator
+            HAVING COUNT(*) = (
+                    SELECT MAX(COUNT(*))
+                    FROM utilizator_cantec
+                    WHERE id_cantec IN (SELECT id FROM cantece_KoL)
+                    GROUP BY id_utilizator
+            ) AND
+    DECODE(LOWER(SUBSTR(u.nume, 1, 1)), 'a', 0, 'e', 0, 'i', 0, 'o', 0, 'u', 0, 1) != 0
+);
+ 
+
+-- cerinta 4:
+-- Sa se afiseze numele, prenumele, email-ul utilizatorilor si o coloana etichetata 'Cantece si Podcast-uri'
+-- care va avea valoarea 'DA' daca utilizatorul a ascultat si apreciat macar un cantec si macar un podcast altfel 'NU'
+-- In caz afirmativ in paranteze se afiseaza numarul de cantece apreciate si numarul de podcast-uri apreciate
+-- Rezultatul va fi ordonat crescator dupa nume si prenume
+
+WITH util_nr_cantec_podcast AS(
+SELECT u2.nume, u2.prenume, u2.email,
+    (SELECT COUNT(*) 
+     FROM utilizator_cantec 
+     WHERE apreciere IS NOT NULL
+        AND id_utilizator = u.id_utilizator
+     ) nr_cantece,
+     (
+        SELECT COUNT(*) 
+        FROM utilizator_podcast
+        WHERE apreciere IS NOT NULL
+        AND id_utilizator = u.id_utilizator
+     ) nr_podcasturi
+FROM ((SELECT id_utilizator FROM utilizator_cantec) UNION (SELECT id_utilizator FROM utilizator_podcast)) u
+INNER JOIN utilizator u2
+ON u2.id = u.id_utilizator
+)
+SELECT nume, prenume, email,
+        (CASE
+        WHEN nr_cantece > 0 AND nr_podcasturi > 0 THEN ('DA(' || TO_CHAR(nr_cantece) || ',' || TO_CHAR(nr_podcasturi)) || ')'
+        ELSE 'NU'
+        END) "Cantece si Podcast-uri"
+FROM util_nr_cantec_podcast
+ORDER BY nume, prenume;
+
+-- cerinta 5
+-- Sa se afiseze prenumele, ziua din saptamana a ultimei zi din luna in care s-au nascut
+-- si numarul de artisti ,care au creat macar un album, pe care i-au apreciat (pozitiv) utilizatorii al caror prenume are cel putin 4 litere si se termina cu o vocala
+-- (daca un utilizator nu a apreciat niciun artist se afiseaza 'Nu exista'). Coloanele vor fi etichetate "Prenume", "Zi", "Numar artisti"
+-- Rezultatul ve fi ordonat dupa numarul de artisti apreciati
+
+SELECT u.prenume "Prenume", TO_CHAR(LAST_DAY(u.data_nastere), 'Day') "Zi",
+    DECODE(COUNT(a.id), 0, 'Nu exista', COUNT(a.id)) "Numar artisti"
+FROM utilizator u
+LEFT JOIN utilizator_artist ua ON ua.id_utilizator = u.id
+LEFT JOIN artist a ON a.id = ua.id_artist
+WHERE LENGTH(u.prenume) >= 4 AND SUBSTR(LOWER(u.prenume), -1, 1) IN ('a', 'e', 'i', 'o', 'u')
+        AND NVL(a.id, -1) IN (SELECT id_artist FROM album)
+GROUP BY u.prenume, TO_CHAR(LAST_DAY(u.data_nastere), 'Day')
+ORDER BY COUNT(a.id);
+
+
+-- 12) Implementarea a 3 operatii de actualizare sau suprimare a datelor utilizând subcereri.
+
+-- Sa se mareasca cu 1 numarul de ascultari ale cantecelor pentru toti utilizatorii al caror prenume are cel putin 8 litere
+UPDATE utilizator_cantec
+SET nr_ascultari = nr_ascultari + 1
+WHERE id_utilizator IN (
+    SELECT id 
+    FROM utilizator
+    WHERE LENGTH(prenume) >= 8);
+
+-- Sa se schimbe valorile de pe coloana 'apreciere' din tabelul UTILIZATOR_PODCAST (din -1 in 1 sau invers, daca valoare este 
+-- null atunci nu se schimba) pentru liniile care corespund utilizatorilor care au creat un playlist
+
+UPDATE utilizator_podcast u
+SET u.apreciere = DECODE(u.apreciere, -1, 1, -1)
+WHERE u.apreciere IS NOT NULL 
+    AND u.id_utilizator IN (
+            SELECT up.id_utilizator
+            FROM utilizator_podcast up
+            INNER JOIN playlist p ON p.id_utilizator = up.id_utilizator
+            WHERE up.id_utilizator = u.id_utilizator);
+ 
+-- Sa se stearga din tabelul utilizator_cantec toate inregistrarile care corespund unui cantec din genul 'Rock' 
+-- si care au durata mai mare decat media duratelor cantecelor din genul 'Hip-Hop'
+
+DELETE FROM utilizator_cantec
+WHERE id_cantec IN (
+    SELECT id
+    FROM cantec
+    WHERE gen = 'Rock'
+        AND durata > (SELECT AVG(durata) medie
+                      FROM cantec 
+                      WHERE gen = 'Hip-Hop'
+                      GROUP BY gen)
+);
+
+ 
+-- 13) Crearea unei secvente ce va fi utilizata în inserarea înregistrarilor în tabele (punctul 10).
+-- Obs. instructiunea pentru crearea secventei este si in fisierul creare_inserare pentru a putea insera inregistrarile in tabel
+CREATE SEQUENCE artist_seq
+INCREMENT BY 1
+START WITH 1;
+
+
+
+-- 16) Formulati in limbaj natural si implementati în SQL: o cerere ce utilizeaza operatia outer-join pe minimum 4 tabele si doua cereri ce utilizeaza operatia division.
+
+-- sa se afiseze informatii despre utilizatorii care au ascultat toate cantecele de pe playlist-ul creat de utilizatorul cu codul 5
+WITH cantec_util_5 AS(
+    SELECT c.id 
+    FROM cantec c
+    INNER JOIN playlist_cantec pc ON pc.id_cantec = c.id
+    INNER JOIN playlist p ON p.id = pc.id_playlist
+    WHERE p.id_utilizator = 5
+)
+SELECT u.id, u.nume, u.prenume, u.email, u.data_nastere 
+FROM utilizator u
+INNER JOIN utilizator_cantec uc ON uc.id_utilizator = u.id
+WHERE uc.id_cantec IN (SELECT id FROM cantec_util_5)
+GROUP BY u.id, u.nume, u.prenume, u.email, u.data_nastere
+HAVING COUNT(uc.id_cantec) = 
+    (SELECT COUNT(*) FROM cantec_util_5);
+
+-- sa se afiseze denumirile si codul cantecelor care au fost apreciate pozitiv de toate persoanele nascute in luna februarie
+WITH pers_februarie AS(
+    SELECT id 
+    FROM utilizator 
+    WHERE TO_CHAR(data_nastere, 'mm') = 2
+)
+SELECT c.denumire, c.id
+FROM cantec c
+WHERE NOT EXISTS(
+        (SELECT *
+        FROM pers_februarie)
+        MINUS
+        (SELECT id_utilizator 
+        FROM utilizator_cantec 
+        WHERE id_cantec = c.id)
+);
+
+-- sa se afiseze numele si prenumele utilizatorilor, denumirea playlist-urilor create si numarul de cantece din playlist care incep cu 'S', 'W' sau 'T'
+-- se vor afisa si playlist-urile care nu au fost create de niciun utilizator si utilizatorii care n-au creat niciun playlist
+SELECT u.nume, u.prenume, p.denumire,(
+    SELECT COUNT(c.id)
+    FROM cantec c
+    INNER JOIN playlist_cantec pc ON pc.id_cantec = c.id
+    WHERE pc.id_playlist = p.id AND SUBSTR(c.denumire, 1, 1) IN ('S','W','T')
+) cnt
+FROM utilizator u
+FULL OUTER JOIN playlist p ON p.id_utilizator = u.id
+ORDER BY u.nume;
+
+
+
+
+-- 17) Optimizarea unei cereri, aplicând regulile de optimizare ce deriva din proprietatile operatorilor algebrei relationale. Cererea va fi exprimata prin expresie algebrica, arbore algebric si limbaj (SQL), atât anterior cat si ulterior optimizarii.
+
+-- sa se afiseze codul si numele utilizatorilor care s-au nascut intre anii 1990 si 1999 si au ascultat un 
+-- cantec cu codul intre 10 si 30 si codul si numele utilizatorilor care au creat un playlist
+
+-- varianta neoptimizata
+SELECT id, nume
+FROM (
+    (SELECT u.* FROM utilizator u INNER JOIN playlist p ON u.id = p.id_utilizator)
+    UNION
+    (
+        (SELECT * FROM 
+            (SELECT * FROM utilizator WHERE TO_CHAR(data_nastere, 'yyyy') <= '1999')
+        WHERE TO_CHAR(data_nastere, 'yyyy') >= '1990') 
+        INTERSECT 
+        (SELECT u.* FROM utilizator u
+            INNER JOIN 
+            (SELECT * FROM (SELECT * FROM utilizator_cantec WHERE id_cantec <= 30) WHERE id_cantec >= 10) a
+            ON a.id_utilizator = u.id
+        )
+    )
+);
+
+-- varianta optimizata
+(SELECT u.id, u.nume FROM utilizator u
+ INNER JOIN (SELECT id_utilizator FROM playlist) p ON p.id_utilizator = u.id)
+ UNION
+(SELECT u.id, u.nume FROM utilizator u
+ INNER JOIN (SELECT id_utilizator FROM utilizator_cantec WHERE id_cantec BETWEEN 10 AND 30) uc
+ ON uc.id_utilizator = u.id
+ WHERE TO_CHAR(data_nastere, 'yyyy') BETWEEN '1990' AND '1999');
